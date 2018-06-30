@@ -21,6 +21,7 @@
   "require": {
     "php": ">=5.2.4",
     "wpsmith/fields": "^0.0.1",
+    "wpsmith/functions": "^0.0.4",
     "wpsmith/singleton": "0.0.1"
   },
   "autoload": {
