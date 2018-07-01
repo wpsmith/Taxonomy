@@ -18,8 +18,15 @@
   "support": {
     "issues": "https://github.com/wpsmith/Taxonomy/issues"
   },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/webdevstudios/taxonomy_single_term"
+    }
+  ],
   "require": {
     "php": ">=5.2.4",
+    "webdevstudios/taxonomy_single_term": "dev-master",
     "wpsmith/fields": "^0.0.1",
     "wpsmith/functions": "^0.0.4",
     "wpsmith/singleton": "0.0.1"
