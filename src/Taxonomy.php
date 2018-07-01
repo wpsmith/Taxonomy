@@ -125,14 +125,25 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		public $no_metabox = false;
 
 		/**
+		 * Whether this should be a single taxonomy.
+		 *
+		 * @var bool
+		 */
+		public $single = false;
+
+		/**
 		 * Constructor. Hooks all interactions to initialize the class.
 		 *
 		 * @since 1.0.0
 		 */
-		protected function __construct() {
+		protected function __construct( $args = array() ) {
 
 			$this->plural   = $this->plural ? $this->plural : $this->taxonomy;
 			$this->singular = $this->singular ? $this->singular : $this->taxonomy;
+
+			if ( ! empty( $args ) && isset( $args['single'] ) && $args['single'] ) {
+				$this->single = true;
+			}
 
 			// Set default terms.
 			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
@@ -294,7 +305,31 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				unset( $args['default_term'] );
 			}
 
-			register_taxonomy( $this->taxonomy, $args );
+			if ( $this->single ) {
+				$taxonomy = new \Taxonomy_Single_Term( $this->taxonomy, array(), 'radio' );
+				// Priority of the metabox placement.
+				$taxonomy->set( 'priority', 'low' );
+
+				// 'normal' to move it under the post content.
+				$taxonomy->set( 'context', 'side' );
+
+				// Custom title for your metabox.
+				$taxonomy->set( 'metabox_title', __( 'Custom Metabox Title', 'wps' ) );
+
+				// Makes a selection required.
+				$taxonomy->set( 'force_selection', true );
+
+				// Will keep radio elements from indenting for child-terms.
+				$taxonomy->set( 'indented', false );
+
+				// Allows adding of new terms from the metabox.
+				$taxonomy->set( 'allow_new_terms', false );
+
+				// Set default.
+				$taxonomy->set( 'default', $this->_default_term );
+			} else {
+				register_taxonomy( $this->taxonomy, $args );
+			}
 
 		}
 
