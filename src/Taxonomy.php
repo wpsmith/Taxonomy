@@ -33,64 +33,49 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 	 * @package WPS_Core
 	 * @author  Travis Smith <t@wpsmith.net>
 	 */
-	abstract class Taxonomy extends WPS\Core\Singleton {
+	class Taxonomy {
 
 		/**
 		 * Taxonomy registered name
 		 *
 		 * @var string
 		 */
-		public $taxonomy;
+		protected $taxonomy;
 
 		/**
 		 * Registered Taxonomy Object.
 		 *
 		 * @var \WP_Taxonomy
 		 */
-		public $taxonomy_object;
+		protected $taxonomy_object;
 
 		/**
 		 * Object type.
 		 *
 		 * @var mixed
 		 */
-		public $object_type;
+		protected $object_type;
 
 		/**
 		 * Singular Taxonomy registered name
 		 *
 		 * @var string
 		 */
-		public $singular;
+		protected $singular;
 
 		/**
 		 * Plural Taxonomy registered name
 		 *
 		 * @var string
 		 */
-		public $plural;
-
-		/**
-		 * Default term array.
-		 *
-		 * @var array|string $args        {
-		 *     Optional. Array or string of arguments for inserting a term.
-		 * @type string      $name        Name of the term.
-		 * @type string      $alias_of    Slug of the term to make this term an alias of.
-		 * Default empty string. Accepts a term slug.
-		 * @type string      $description The term description. Default empty string.
-		 * @type int         $parent      The id of the parent term. Default 0.
-		 * @type string      $slug        The term slug to use. Default empty string.
-		 * }
-		 */
-		private $_default_term = array();
+		protected $plural;
 
 		/**
 		 * Default term object.
 		 *
 		 * @var \WP_Term
 		 */
-		private $default_term;
+		protected $default;
 
 		/**
 		 * Key-Value Array of slug => term names.
@@ -105,14 +90,14 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @type string      $slug        The term slug to use. Default empty string.
 		 * }
 		 */
-		public $_terms = array();
+		protected $terms_to_be_added = array();
 
 		/**
 		 * Array of registered terms.
 		 *
 		 * @var \WP_Term[]
 		 */
-		public $terms = array();
+		protected $terms = array();
 
 		/**
 		 * What metaboxes to remove.
@@ -122,57 +107,84 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 *
 		 * @var array
 		 */
-		public $remove_metaboxes = array();
+		protected $remove_metaboxes = array();
 
 		/**
 		 * Whether to remove the taxonomy's metabox from its post types.
 		 *
 		 * @var bool
 		 */
-		public $no_metabox = false;
+		protected $no_metabox = false;
 
 		/**
 		 * Whether this should be a single taxonomy.
 		 *
 		 * @var bool
 		 */
-		public $single = false;
+		protected $single = false;
 
 		/**
 		 * Constructor. Hooks all interactions to initialize the class.
 		 *
 		 * @since 1.0.0
 		 */
-		protected function __construct( $args = array() ) {
+		/**
+		 * Taxonomy constructor.
+		 *
+		 * @param string       $name        Taxonomy name/slug.
+		 * @param array|string $object_type Object types taxonomy will be assigned.
+		 * @param array        $args        Additional args to set at initialization.
+		 */
+		public function __construct( $name, $object_type = array(), $args = array() ) {
 
-			$this->plural   = $this->plural ? $this->plural : $this->taxonomy;
-			$this->singular = $this->singular ? $this->singular : $this->taxonomy;
+			// Defaults.
+			$this->taxonomy = sanitize_title_with_dashes( $name );
+			$this->plural   = $this->taxonomy;
+			$this->singular = $this->taxonomy;
 
-			if ( ! empty( $args ) && isset( $args['object_type'] ) && $args['object_type'] ) {
-				$this->object_type = $args['object_type'];
+			// Set object type (e.g., post type).
+			$this->object_type = (array) $object_type;
+
+			// Process Args.
+			if ( ! empty( $args ) ) {
+				// Set labels base.
+				$this->plural   = isset( $args['plural'] ) ? $args['plural'] : $this->plural;
+				$this->singular = isset( $args['singular'] ) ? $args['singular'] : $this->singular;
+
+				// Set single args.
+				if ( isset( $args['single'] ) && $args['single'] ) {
+					$this->single = is_array( $args['single'] ) ? $args['single'] : true;
+				}
 			}
-
-			if ( ! empty( $args ) && isset( $args['single'] ) && $args['single'] ) {
-				$this->single = true;
-			}
-
-			// Set default terms.
-			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
 
 			// Maybe do activate.
 			$this->maybe_do_activate();
-
-			// Create the create_taxonomy.
-			$this->add_action( 'init', array( $this, 'create_taxonomy' ), 0 );
-			$this->add_action( 'init', array( $this, 'set_taxonomy_object' ), ~PHP_INT_MAX );
 
 			// Maybe run init method.
 			if ( method_exists( $this, 'init' ) ) {
 				$this->init();
 			}
 
+			$this->add_hooks();
+
+		}
+
+
+
+		public function add_hooks() {
+			// Set default terms.
+			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
+
+			// Create the create_taxonomy.
+			$this->add_action( 'init', array( $this, 'create_taxonomy' ), 0 );
+
 			// Initialize fields for ACF.
 			$this->add_action( 'plugins_loaded', array( $this, 'initialize_fields' ) );
+
+			// Remove Taxonomy Metabox.
+			if ( $this->no_metabox ) {
+				add_action( 'add_meta_boxes', array( $this, 'remove_taxonomy_metaboxes' ), 10 );
+			}
 
 			// Maybe run methods.
 			// Maybe create ACF fields.
@@ -181,46 +193,51 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 					$this->add_action( $hook_method, array( $this, $hook_method ) );
 				}
 			}
-			// Remove Taxonomy Metabox.
-			if ( $this->no_metabox ) {
-				add_action( 'add_meta_boxes', array( $this, 'remove_taxonomy_metaboxes' ), 10 );
-			}
-
 		}
 
 		/**
 		 * Initializes ACF Fields on plugins_loaded hook.
+		 *
+		 * @private
 		 */
 		public function initialize_fields() {
 			WPS\Core\Fields::get_instance();
 		}
 
 		/**
-		 * Maybe do activate.
+		 * Process default value for settings
+		 *
+		 * @param array $default Default value.
+		 *
+		 * @return array
 		 */
-		protected function maybe_do_activate() {
-			// Prepopulate terms.
-			register_activation_hook( 'wps', array( $this, 'activate' ) );
-			$activation_hook = 'activate_' . plugin_basename( 'wps' );
-			if ( did_action( $activation_hook ) || doing_action( $activation_hook ) ) {
-				$this->activate();
-			}
-		}
+		protected function process_default( $default = array() ) {
+			$default = (array) $default;
 
-		/**
-		 * Activation method.
-		 */
-		public function activate() {
-			if ( is_string( $this->default_term ) || ! empty( $this->_terms ) ) {
-				$this->populate_taxonomy();
+			if ( null === $default || '' === $default ) {
+				$default = array( (int) get_option( 'default_' . $this->slug ) );
 			}
-		}
 
-		/**
-		 * Sets the taxonomy object.
-		 */
-		public function set_taxonomy_object() {
-			$this->taxonomy_object = get_taxonomy( $this->taxonomy );
+			foreach ( $default as $object_type => $default_item ) {
+				if ( is_numeric( $default_item ) ) {
+					continue;
+				}
+				$term = get_term_by( 'slug', $default_item, $this->taxonomy );
+				if ( false === $term ) {
+					$term = get_term_by( 'name', $default_item, $this->taxonomy );
+				}
+				if ( false === $term ) {
+					$this->populate_taxonomy_default();
+				}
+				$default[ $object_type ] = ( $term instanceof \WP_Term ) ? $term->term_id : false;
+
+				// Set global default.
+				if ( is_numeric( $object_type ) ) {
+					update_option( 'default_' . $this->taxonomy, $default[ $object_type ] );
+				}
+			}
+
+			return array_filter( $default );
 		}
 
 		/**
@@ -255,15 +272,15 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @return bool Whether term was removed or not.
 		 */
 		public function remove_term( $term_name ) {
-			if ( isset( $this->_terms[ $term_name ] ) ) {
-				unset( $this->_terms[ $term_name ] );
+			if ( isset( $this->terms_to_be_added[ $term_name ] ) ) {
+				unset( $this->terms_to_be_added[ $term_name ] );
 
 				return true;
 			}
 
-			foreach ( $this->_terms as $key => $data ) {
+			foreach ( $this->terms_to_be_added as $key => $data ) {
 				if ( isset( $data['slug'] ) && $term_name === $data['slug'] ) {
-					unset( $this->_terms[ $key ] );
+					unset( $this->terms_to_be_added[ $key ] );
 
 					return true;
 				}
@@ -279,29 +296,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @param string $term_slug Term slug.
 		 */
 		public function add_term( $term_name, $term_slug = '' ) {
-			$this->_terms[ $term_name ] = $this->get_term_array( $term_name, $term_slug );
-		}
-
-		/**
-		 * Sets this object's default_term property.
-		 *
-		 * @param string $term_name Term Name.
-		 * @param string $term_slug Term Slug.
-		 */
-		public function set_default_term( $term_name, $term_slug = '' ) {
-			$this->default_term = $this->get_term_array( $term_name, $term_slug );
-		}
-
-		/**
-		 * Gets default term and populates the default term if necessary.
-		 * @return string|\WP_Term
-		 */
-		public function get_default_term() {
-			if ( is_string( $this->default_term ) ) {
-				$this->populate_taxonomy_default_term();
-			}
-
-			return $this->default_term;
+			$this->terms_to_be_added[ $term_name ] = $this->get_term_array( $term_name, $term_slug );
 		}
 
 		/**
@@ -333,9 +328,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				}
 				unset( $args['terms'] );
 			}
-			if ( isset( $args['default_term'] ) ) {
-				$this->set_default_term( $args['default_term'] );
-				unset( $args['default_term'] );
+			if ( isset( $args['default'] ) ) {
+				$this->set_default( $args['default'] );
+				unset( $args['default'] );
 			}
 
 			register_taxonomy( $this->taxonomy, $this->object_type, $args );
@@ -346,29 +341,50 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 		}
 
+		private function get_single_defaults() {
+			return array(
+				// Priority of the metabox placement.
+				'priority'        => 'low',
+
+				// 'normal' to move it under the post content.
+				'context'         => '',
+
+				// Custom title for your metabox.
+				'metabox_title'   => '',
+
+				// Makes a selection required.
+				'force_selection' => false,
+
+				// Will keep radio elements from indenting for child-terms.
+				'indented'        => true,
+
+				// Allows adding of new terms from the metabox.
+				'allow_new_terms' => true,
+
+				// Set default value.
+				'default'         => '',
+			);
+		}
+
 		/**
 		 * Make single term taxonomy.
 		 */
 		protected function make_single_term() {
-			$taxonomy = new SingleTermTaxonomy( $this->taxonomy, array(), 'radio' );
 
-			// Priority of the metabox placement.
-			$taxonomy->set( 'priority', 'low' );
+			$args = $this->get_single_defaults();
+			if ( method_exists( $this, 'get_single_args' ) ) {
+				$args = wp_parse_args( $this->get_single_args(), $args );
+			}
+			$type = isset( $args['type'] ) ? $args['type'] : 'radio';
 
-			// 'normal' to move it under the post content.
-			$taxonomy->set( 'context', 'side' );
+			// Create taxonomy.
+			$taxonomy = new SingleTermTaxonomy( $this->taxonomy, (array) $this->object_type, $type );
 
-			// Custom title for your metabox.
-			$taxonomy->set( 'metabox_title', __( 'Custom Metabox Title', 'wps' ) );
-
-			// Makes a selection required.
-			$taxonomy->set( 'force_selection', true );
-
-			// Will keep radio elements from indenting for child-terms.
-			$taxonomy->set( 'indented', false );
-
-			// Allows adding of new terms from the metabox.
-			$taxonomy->set( 'allow_new_terms', false );
+			if ( method_exists( $this, 'get_single_args' ) ) {
+				foreach ( array_keys( $this->get_single_defaults() ) as $property ) {
+					$taxonomy->set( $property, $args[ $property ] );
+				}
+			}
 		}
 
 		/**
@@ -411,7 +427,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				'update_count_callback' => '_update_post_term_count', // _update_generic_term_count
 				'query_var'             => $this->taxonomy,
 				'terms'                 => null,
-				'default_term'          => null,
+				'default'               => null,
 			) );
 
 		}
@@ -482,12 +498,12 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 */
 		public function populate_taxonomy() {
 			// Populate with Default Term.
-			if ( is_string( $this->default_term ) ) {
-				$this->populate_taxonomy_default_term();
+			if ( is_string( $this->default ) ) {
+				$this->populate_taxonomy_default();
 			}
 
 			// Populate with Terms.
-			foreach ( $this->_terms as $term => $data ) {
+			foreach ( $this->terms_to_be_added as $term => $data ) {
 				if ( ! term_exists( $term, $this->taxonomy ) ) {
 					$this->terms[] = wp_insert_term( $term, $this->taxonomy, $data );
 				}
@@ -497,13 +513,13 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		/**
 		 * Populates a taxonomy with the default term.
 		 */
-		public function populate_taxonomy_default_term() {
-			if ( is_string( $this->default_term ) ) {
-				$term = $this->get_term_array( $this->default_term );
+		public function populate_taxonomy_default() {
+			if ( is_string( $this->default ) ) {
+				$term = $this->get_term_array( $this->default );
 				$term = wp_insert_term( $term['name'], $this->taxonomy, $term['slug'] );
 
 				if ( ! empty( $term ) && ! is_wp_error( $term ) ) {
-					$this->default_term = $term;
+					$this->default = $term;
 					update_option( 'default_' . $this->taxonomy, $term['term_id'] );
 				}
 			}
@@ -514,7 +530,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 *
 		 * @return bool
 		 */
-		private function should_bail() {
+		protected function should_bail() {
 			return (
 				( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ||
 				( defined( 'DOING_AJAX' ) && DOING_AJAX ) ||
@@ -524,8 +540,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 		/**
 		 * Define default terms for custom taxonomies
-		 *
-		 * @link http://wordpress.mfields.org/2010/set-default-terms-for-your-custom-taxonomies-in-wordpress-3-0/
 		 *
 		 * @param int      $post_id Post ID.
 		 * @param \WP_Post $post    Post object.
@@ -545,14 +559,14 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 			// Now make sure we have the default term inserted.
 			// Now we should have what we need.
-			$default_term = $this->get_default_term();
-			if ( ! empty( $default_term ) ) {
+			$default = $this->get_default();
+			if ( ! empty( $default ) ) {
 				// Get set terms.
 				$terms = wp_get_object_terms( $post_id, $this->taxonomy );
 
 				// If no terms are currently set, force default term.
-				if ( empty( $terms ) && term_exists( $default_term['term_id'], $this->taxonomy ) ) {
-					wp_set_object_terms( $post_id, $default_term['term_id'], $this->taxonomy );
+				if ( empty( $terms ) && term_exists( $default['term_id'], $this->taxonomy ) ) {
+					wp_set_object_terms( $post_id, $default['term_id'], $this->taxonomy );
 				}
 			}
 		}
@@ -601,6 +615,51 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			} else {
 				add_action( $tag, $function_to_add, $priority, $accepted_args );
 			}
+		}
+
+		/**
+		 * Set the object properties.
+		 *
+		 * @since 0.2.1
+		 *
+		 * @param string $property Property in object.  Must be set in object.
+		 * @param mixed  $value    Value of property.
+		 *
+		 * @return Taxonomy_Single_Term  Returns Taxonomy_Single_Term object, allows for chaining.
+		 */
+		public function set( $property, $value ) {
+
+			if ( ! property_exists( $this, $property ) ) {
+				return $this;
+			}
+
+			if ( 'default' === $property ) {
+				$value = $this->process_default( $value );
+			}
+
+			$this->$property = $value;
+
+			return $this;
+		}
+
+		/**
+		 * Magic getter for our object.
+		 *
+		 * @since  0.2.1
+		 *
+		 * @param  string    Property in object to retrieve.
+		 *
+		 * @throws Exception Throws an exception if the field is invalid.
+		 *
+		 * @return mixed     Property requested.
+		 */
+		public function __get( $property ) {
+
+			if ( property_exists( $this, $property ) ) {
+				return $this->{$property};
+			}
+
+			throw new Exception( 'Invalid ' . __CLASS__ . ' property: ' . $property );
 		}
 
 	}
