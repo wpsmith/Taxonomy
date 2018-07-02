@@ -50,6 +50,13 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		public $taxonomy_object;
 
 		/**
+		 * Object type.
+		 *
+		 * @var mixed
+		 */
+		public $object_type;
+
+		/**
 		 * Singular Taxonomy registered name
 		 *
 		 * @var string
@@ -141,6 +148,10 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			$this->plural   = $this->plural ? $this->plural : $this->taxonomy;
 			$this->singular = $this->singular ? $this->singular : $this->taxonomy;
 
+			if ( ! empty( $args ) && isset( $args['object_type'] ) && $args['object_type'] ) {
+				$this->object_type = $args['object_type'];
+			}
+
 			if ( ! empty( $args ) && isset( $args['single'] ) && $args['single'] ) {
 				$this->single = true;
 			}
@@ -148,16 +159,12 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			// Set default terms.
 			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
 
-			// Prepopulate terms.
-			register_activation_hook( 'wps', array( $this, 'activate' ) );
-			$activation_hook = 'activate_' . plugin_basename( 'wps' );
-			if ( did_action( $activation_hook ) || doing_action( $activation_hook ) ) {
-				$this->activate();
-			}
+			// Maybe do activate.
+			$this->maybe_do_activate();
 
 			// Create the create_taxonomy.
-			add_action( 'init', array( $this, 'create_taxonomy' ), 0 );
-			add_action( 'init', array( $this, 'set_taxonomy_object' ), ~PHP_INT_MAX );
+			$this->add_action( 'init', array( $this, 'create_taxonomy' ), 0 );
+			$this->add_action( 'init', array( $this, 'set_taxonomy_object' ), ~PHP_INT_MAX );
 
 			// Maybe run init method.
 			if ( method_exists( $this, 'init' ) ) {
@@ -165,17 +172,13 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			}
 
 			// Initialize fields for ACF.
-			add_action( 'plugins_loaded', array( $this, 'initialize_fields' ) );
+			$this->add_action( 'plugins_loaded', array( $this, 'initialize_fields' ) );
 
 			// Maybe run methods.
 			// Maybe create ACF fields.
 			foreach ( array( 'core_acf_fields', 'admin_menu', 'admin_init', 'plugins_loaded' ) as $hook_method ) {
 				if ( method_exists( $this, $hook_method ) ) {
-					if ( did_action( $hook_method ) || doing_action( $hook_method ) ) {
-						call_user_func( array( $this, $hook_method ) );
-					} else {
-						add_action( $hook_method, array( $this, $hook_method ) );
-					}
+					$this->add_action( $hook_method, array( $this, $hook_method ) );
 				}
 			}
 			// Remove Taxonomy Metabox.
@@ -186,10 +189,29 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		}
 
 		/**
+		 * Initializes ACF Fields on plugins_loaded hook.
+		 */
+		public function initialize_fields() {
+			WPS\Core\Fields::get_instance();
+		}
+
+		/**
+		 * Maybe do activate.
+		 */
+		protected function maybe_do_activate() {
+			// Prepopulate terms.
+			register_activation_hook( 'wps', array( $this, 'activate' ) );
+			$activation_hook = 'activate_' . plugin_basename( 'wps' );
+			if ( did_action( $activation_hook ) || doing_action( $activation_hook ) ) {
+				$this->activate();
+			}
+		}
+
+		/**
 		 * Activation method.
 		 */
 		public function activate() {
-			if ( ! empty( $this->_default_term ) || ! empty( $this->_terms ) ) {
+			if ( is_string( $this->default_term ) || ! empty( $this->_terms ) ) {
 				$this->populate_taxonomy();
 			}
 		}
@@ -213,7 +235,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			if ( is_array( $term_name ) ) {
 				return $term_name;
 			} elseif ( is_string( $term_name ) ) {
-				$term_slug = '' !== $term_slug ? $term_slug : $term_name;
+				$term_slug = '' !== $term_slug ? $term_slug : sanitize_title_with_dashes( $term_name );
 
 				// Create default term array.
 				return array(
@@ -267,8 +289,19 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @param string $term_slug Term Slug.
 		 */
 		public function set_default_term( $term_name, $term_slug = '' ) {
-			$this->_default_term = $this->get_term_array( $term_name, $term_slug );
+			$this->default_term = $this->get_term_array( $term_name, $term_slug );
+		}
 
+		/**
+		 * Gets default term and populates the default term if necessary.
+		 * @return string|\WP_Term
+		 */
+		public function get_default_term() {
+			if ( is_string( $this->default_term ) ) {
+				$this->populate_taxonomy_default_term();
+			}
+
+			return $this->default_term;
 		}
 
 		/**
@@ -305,32 +338,37 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				unset( $args['default_term'] );
 			}
 
+			register_taxonomy( $this->taxonomy, $this->object_type, $args );
+
 			if ( $this->single ) {
-				$taxonomy = new \Taxonomy_Single_Term( $this->taxonomy, array(), 'radio' );
-				// Priority of the metabox placement.
-				$taxonomy->set( 'priority', 'low' );
-
-				// 'normal' to move it under the post content.
-				$taxonomy->set( 'context', 'side' );
-
-				// Custom title for your metabox.
-				$taxonomy->set( 'metabox_title', __( 'Custom Metabox Title', 'wps' ) );
-
-				// Makes a selection required.
-				$taxonomy->set( 'force_selection', true );
-
-				// Will keep radio elements from indenting for child-terms.
-				$taxonomy->set( 'indented', false );
-
-				// Allows adding of new terms from the metabox.
-				$taxonomy->set( 'allow_new_terms', false );
-
-				// Set default.
-				$taxonomy->set( 'default', $this->_default_term );
-			} else {
-				register_taxonomy( $this->taxonomy, $args );
+				$this->make_single_term();
 			}
 
+		}
+
+		/**
+		 * Make single term taxonomy.
+		 */
+		protected function make_single_term() {
+			$taxonomy = new SingleTermTaxonomy( $this->taxonomy, array(), 'radio' );
+
+			// Priority of the metabox placement.
+			$taxonomy->set( 'priority', 'low' );
+
+			// 'normal' to move it under the post content.
+			$taxonomy->set( 'context', 'side' );
+
+			// Custom title for your metabox.
+			$taxonomy->set( 'metabox_title', __( 'Custom Metabox Title', 'wps' ) );
+
+			// Makes a selection required.
+			$taxonomy->set( 'force_selection', true );
+
+			// Will keep radio elements from indenting for child-terms.
+			$taxonomy->set( 'indented', false );
+
+			// Allows adding of new terms from the metabox.
+			$taxonomy->set( 'allow_new_terms', false );
 		}
 
 		/**
@@ -444,7 +482,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 */
 		public function populate_taxonomy() {
 			// Populate with Default Term.
-			$this->populate_taxonomy_default_term();
+			if ( is_string( $this->default_term ) ) {
+				$this->populate_taxonomy_default_term();
+			}
 
 			// Populate with Terms.
 			foreach ( $this->_terms as $term => $data ) {
@@ -458,9 +498,14 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * Populates a taxonomy with the default term.
 		 */
 		public function populate_taxonomy_default_term() {
-			if ( ! empty( $this->_default_term ) ) {
-				$this->default_term = wp_insert_term( $this->_default_term['name'], $this->taxonomy, $this->_default_term );
-				update_option( 'default_' . $this->taxonomy, $this->default_term['term_id'] );
+			if ( is_string( $this->default_term ) ) {
+				$term = $this->get_term_array( $this->default_term );
+				$term = wp_insert_term( $term['name'], $this->taxonomy, $term['slug'] );
+
+				if ( ! empty( $term ) && ! is_wp_error( $term ) ) {
+					$this->default_term = $term;
+					update_option( 'default_' . $this->taxonomy, $term['term_id'] );
+				}
 			}
 		}
 
@@ -493,25 +538,21 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			}
 
 			// Make sure we are dealing with an associated post & a taxonomy with a default term.
-			$post_type  = get_post_type( $post );
-			$taxonomies = get_object_taxonomies( $post_type );
-			if ( ! in_array( $this->taxonomy, $taxonomies, true ) || empty( $this->_default_term ) ) {
+			$post_type = get_post_type( $post );
+			if ( ! is_object_in_taxonomy( $post_type, $this->taxonomy ) ) {
 				return;
 			}
 
 			// Now make sure we have the default term inserted.
-			if ( empty( $this->default_term ) && ! empty( $this->_default_term ) ) {
-				$this->populate_taxonomy_default_term();
-			}
-
 			// Now we should have what we need.
-			if ( ! empty( $this->default_term ) ) {
+			$default_term = $this->get_default_term();
+			if ( ! empty( $default_term ) ) {
 				// Get set terms.
 				$terms = wp_get_object_terms( $post_id, $this->taxonomy );
 
 				// If no terms are currently set, force default term.
-				if ( empty( $terms ) && term_exists( $this->default_term['term_id'], $this->taxonomy ) ) {
-					wp_set_object_terms( $post_id, $this->default_term['term_id'], $this->taxonomy );
+				if ( empty( $terms ) && term_exists( $default_term['term_id'], $this->taxonomy ) ) {
+					wp_set_object_terms( $post_id, $default_term['term_id'], $this->taxonomy );
 				}
 			}
 		}
