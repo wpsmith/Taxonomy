@@ -300,13 +300,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		}
 
 		/**
-		 * Create Taxonomies
-		 *
-		 * @since 1.0.0
-		 */
-		abstract public function create_taxonomy();
-
-		/**
 		 * Registers the post type helper method.
 		 *
 		 * @param array $args Array of post type args.
