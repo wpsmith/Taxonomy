@@ -33,7 +33,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 	 * @package WPS_Core
 	 * @author  Travis Smith <t@wpsmith.net>
 	 */
-	class Taxonomy {
+	class Taxonomy extends WPS\Core\Registerable {
 
 		/**
 		 * Taxonomy registered name
@@ -640,26 +640,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			$this->$property = $value;
 
 			return $this;
-		}
-
-		/**
-		 * Magic getter for our object.
-		 *
-		 * @since  0.2.1
-		 *
-		 * @param  string    Property in object to retrieve.
-		 *
-		 * @throws Exception Throws an exception if the field is invalid.
-		 *
-		 * @return mixed     Property requested.
-		 */
-		public function __get( $property ) {
-
-			if ( property_exists( $this, $property ) ) {
-				return $this->{$property};
-			}
-
-			throw new Exception( 'Invalid ' . __CLASS__ . ' property: ' . $property );
 		}
 
 	}
