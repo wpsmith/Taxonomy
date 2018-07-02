@@ -29,6 +29,7 @@
     "webdevstudios/taxonomy_single_term": "dev-master",
     "wpsmith/fields": "^0.0.1",
     "wpsmith/functions": "^0.0.4",
+    "wpsmith/registerable": "^0.0.2",
     "wpsmith/singleton": "0.0.1"
   },
   "autoload": {
