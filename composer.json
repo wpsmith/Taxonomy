@@ -27,10 +27,10 @@
   "require": {
     "php": ">=5.2.4",
     "webdevstudios/taxonomy_single_term": "dev-master",
-    "wpsmith/fields": "^0.0.1",
-    "wpsmith/functions": "^0.0.4",
+    "wpsmith/fields": "dev-master",
+    "wpsmith/functions": "dev-master",
     "wpsmith/registerable": "dev-master",
-    "wpsmith/singleton": "0.0.1"
+    "wpsmith/singleton": "^0.0.1"
   },
   "autoload": {
     "psr-4": {
