@@ -196,7 +196,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			}
 
 			// Maybe do activate.
-			$this->maybe_do_activate();
+//			$this->maybe_do_activate( __FILE__ );
 
 			// Maybe run init method.
 			if ( method_exists( $this, 'init' ) ) {
@@ -210,13 +210,26 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		/**
 		 * Maybe do activate.
 		 */
-		protected function maybe_do_activate() {
+		protected function maybe_do_activate( $file ) {
 			// Prepopulate terms.
-			register_activation_hook( 'wps', array( $this, 'activate' ) );
-			$activation_hook = 'activate_' . plugin_basename( 'wps' );
+			register_activation_hook( $file, array( $this, 'activate' ) );
+			$activation_hook = 'activate_' . plugin_basename( $file );
 			if ( did_action( $activation_hook ) || doing_action( $activation_hook ) ) {
 				$this->activate();
 			}
+		}
+
+		/**
+		 * Activation method.
+		 *
+		 * Flushes rewrite rules.
+		 */
+		public function activate() {
+
+			if ( ! empty( $this->terms_to_be_added ) ) {
+				$this->terms = self::populate_taxonomy( $this->taxonomy, $this->terms_to_be_added );
+			}
+
 		}
 
 
@@ -258,35 +271,34 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 *
 		 * @param array $default Default value.
 		 *
-		 * @return array
+		 * @return \WP_Term|bool
 		 */
-		protected function process_default( $default = array() ) {
-			$default = (array) $default;
+		protected function process_default( $default = '' ) {
 
 			if ( null === $default || '' === $default ) {
-				$default = array( (int) get_option( 'default_' . $this->slug ) );
+				return false;
+			}
+			if (
+				( null !== $this->default && $this->default['name'] === $default ) ||
+				( null !== $this->default && $this->default['slug'] === $default )
+			) {
+				return $this->default;
+//				$default = array( (int) get_option( 'default_' . $this->slug ) );
 			}
 
-			foreach ( $default as $object_type => $default_item ) {
-				if ( is_numeric( $default_item ) ) {
-					continue;
-				}
-				$term = get_term_by( 'slug', $default_item, $this->taxonomy );
-				if ( false === $term ) {
-					$term = get_term_by( 'name', $default_item, $this->taxonomy );
-				}
-				if ( false === $term ) {
-					$this->populate_taxonomy_default();
-				}
-				$default[ $object_type ] = ( $term instanceof \WP_Term ) ? $term->term_id : false;
-
-				// Set global default.
-				if ( is_numeric( $object_type ) ) {
-					update_option( 'default_' . $this->taxonomy, $default[ $object_type ] );
-				}
+			$term = get_term_by( 'slug', $default, $this->taxonomy, ARRAY_A );
+			if ( false === $term ) {
+				$term = get_term_by( 'name', $default, $this->taxonomy, ARRAY_A );
 			}
 
-			return array_filter( $default );
+			if ( false === $term ) {
+				$term = $this->populate_taxonomy_default( $default );
+			}
+
+			$this->default = $term;
+			update_option( 'default_' . $this->taxonomy, $this->default['term_id'] );
+
+			return $this->default;
 		}
 
 		/**
@@ -364,7 +376,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 *
 		 * @param array $args Array of post type args.
 		 */
-		protected function register_taxonomy() {
+		public function register_taxonomy() {
 
 			register_taxonomy( $this->taxonomy, $this->object_type, $this->get_args() );
 
@@ -529,33 +541,69 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		/**
 		 * Populate taxonomy and sets default taxonomy term if it exists.
 		 */
-		public function populate_taxonomy() {
-			// Populate with Default Term.
-			if ( is_string( $this->default ) ) {
-				$this->populate_taxonomy_default();
-			}
+		public static function populate_taxonomy( $taxonomy, $terms_to_be_added ) {
+			$terms = array();
 
 			// Populate with Terms.
-			foreach ( $this->terms_to_be_added as $term => $data ) {
-				if ( ! term_exists( $term, $this->taxonomy ) ) {
-					$this->terms[] = wp_insert_term( $term, $this->taxonomy, $data );
+			foreach ( $terms_to_be_added as $term => $data ) {
+				if ( ! term_exists( $term, $taxonomy ) ) {
+					$terms[] = wp_insert_term( $term, $taxonomy, $data );
+				}
+			}
+
+			return $terms;
+
+		}
+
+//		/**
+//		 * Populate taxonomy and sets default taxonomy term if it exists.
+//		 */
+//		public function populate_taxonomy() {
+//			WPS\write_log( $this, 'populate_taxonomy' );
+//			// Populate with Terms.
+//			foreach ( $this->terms_to_be_added as $term => $data ) {
+//				if ( ! term_exists( $term, $this->taxonomy ) ) {
+//					$this->terms[] = wp_insert_term( $term, $this->taxonomy, $data );
+//				}
+//			}
+//
+//		}
+
+		/**
+		 * Populates a taxonomy with the default term.
+		 */
+		public function populate_taxonomy_default( $default ) {
+			if ( is_string( $default ) ) {
+				$term = wp_insert_term( $default, $this->taxonomy );
+
+				if ( ! empty( $term ) && ! is_wp_error( $term ) ) {
+					$this->default = get_term( $term['term_id'], $this->taxonomy, ARRAY_A );
+					update_option( 'default_' . $this->taxonomy, $this->default['term_id'] );
 				}
 			}
 		}
 
 		/**
-		 * Populates a taxonomy with the default term.
+		 * Gets default term.
+		 *
+		 * @param string $object_type Object type.
+		 *
+		 * @return int
 		 */
-		public function populate_taxonomy_default() {
-			if ( is_string( $this->default ) ) {
-				$term = $this->get_term_array( $this->default );
-				$term = wp_insert_term( $term['name'], $this->taxonomy, $term['slug'] );
+		public function get_default( $object_type = '' ) {
+			WPS\write_log( $this->default, 'get_default' );
+			WPS\write_log( $object_type, 'get_default:$object_type' );
 
-				if ( ! empty( $term ) && ! is_wp_error( $term ) ) {
-					$this->default = $term;
-					update_option( 'default_' . $this->taxonomy, $term['term_id'] );
-				}
+			if ( empty( $this->default ) ) {
+				return 0;
 			}
+
+			if ( isset( $this->default[ $object_type ] ) ) {
+				return $this->default[ $object_type ];
+			}
+
+			return absint( $this->default[0] );
+
 		}
 
 		/**
@@ -579,7 +627,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 			// Now make sure we have the default term inserted.
 			// Now we should have what we need.
-			$default = $this->get_default();
+			$default = $this->get_default( get_post_type( $post ) );
 			if ( ! empty( $default ) ) {
 				// Get set terms.
 				$terms = wp_get_object_terms( $post_id, $this->taxonomy );
@@ -670,6 +718,24 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			$this->$property = $value;
 
 			return $this;
+		}
+
+		/**
+		 * Magic getter for our object.
+		 *
+		 * @param  string $property Property in object to retrieve.
+		 *
+		 * @throws \Exception Throws an exception if the field is invalid.
+		 *
+		 * @return mixed     Property requested.
+		 */
+		public function __get( $property ) {
+
+			if ( property_exists( $this, $property ) ) {
+				return $this->{$property};
+			}
+
+			throw new \Exception( 'Invalid ' . __CLASS__ . ' property: ' . $property );
 		}
 
 	}
