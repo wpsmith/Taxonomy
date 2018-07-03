@@ -71,11 +71,39 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		protected $plural;
 
 		/**
+		 * Taxonomy label.
+		 *
+		 * @var string
+		 */
+		protected $label;
+
+		/**
+		 * Taxonomy description.
+		 *
+		 * @var string
+		 */
+		protected $description;
+
+		/**
 		 * Default term object.
 		 *
 		 * @var \WP_Term
 		 */
 		protected $default;
+
+		/**
+		 * Taxonomy Registration Defaults.
+		 *
+		 * @var array
+		 */
+		protected $defaults = array();
+
+		/**
+		 * Limited terms.
+		 *
+		 * @var LimitNumPostsForTerm[]
+		 */
+		protected $limits = array();
 
 		/**
 		 * Key-Value Array of slug => term names.
@@ -124,11 +152,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		protected $single = false;
 
 		/**
-		 * Constructor. Hooks all interactions to initialize the class.
-		 *
-		 * @since 1.0.0
-		 */
-		/**
 		 * Taxonomy constructor.
 		 *
 		 * @param string       $name        Taxonomy name/slug.
@@ -147,9 +170,24 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 			// Process Args.
 			if ( ! empty( $args ) ) {
-				// Set labels base.
-				$this->plural   = isset( $args['plural'] ) ? $args['plural'] : $this->plural;
-				$this->singular = isset( $args['singular'] ) ? $args['singular'] : $this->singular;
+				$this->plural     = isset( $args['plural'] ) ? $args['plural'] : $this->plural;
+				$this->singular   = isset( $args['singular'] ) ? $args['singular'] : $this->singular;
+				$this->label      = isset( $args['label'] ) ? $args['label'] : $this->label;
+				$this->rewrite    = isset( $args['rewrite'] ) ? $args['rewrite'] : $this->rewrite;
+				$this->defaults   = isset( $args['defaults'] ) ? $args['defaults'] : $this->defaults;
+				$this->no_metabox = isset( $args['no_metabox'] ) ? $args['no_metabox'] : $this->no_metabox;
+
+				// Process Default.
+				if ( isset( $args['default'] ) && $args['default'] ) {
+					$this->process_default( $args['default'] );
+				}
+
+				// Add terms.
+				if ( isset( $args['terms'] ) && ! empty( $args['terms'] ) ) {
+					foreach ( $args['terms'] as $term ) {
+						$this->add_term( $term );
+					}
+				}
 
 				// Set single args.
 				if ( isset( $args['single'] ) && $args['single'] ) {
@@ -169,6 +207,17 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 		}
 
+		/**
+		 * Maybe do activate.
+		 */
+		protected function maybe_do_activate() {
+			// Prepopulate terms.
+			register_activation_hook( 'wps', array( $this, 'activate' ) );
+			$activation_hook = 'activate_' . plugin_basename( 'wps' );
+			if ( did_action( $activation_hook ) || doing_action( $activation_hook ) ) {
+				$this->activate();
+			}
+		}
 
 
 		public function add_hooks() {
@@ -176,7 +225,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
 
 			// Create the create_taxonomy.
-			$this->add_action( 'init', array( $this, 'create_taxonomy' ), 0 );
+			$this->add_action( 'init', array( $this, 'register_taxonomy' ), 0 );
 
 			// Initialize fields for ACF.
 			$this->add_action( 'plugins_loaded', array( $this, 'initialize_fields' ) );
@@ -299,34 +348,25 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			$this->terms_to_be_added[ $term_name ] = $this->get_term_array( $term_name, $term_slug );
 		}
 
-		/**
-		 * Registers the post type helper method.
-		 *
-		 * @param array $args Array of post type args.
-		 */
-		protected function register_taxonomy( $args = array() ) {
+		public function get_args() {
 			$plural = ucwords( $this->get_word( $this->plural ) );
 
-			$defaults = wp_parse_args( array(
+			return wp_parse_args( array(
 				'label'       => __( $plural, 'wps' ),
 				'description' => __( 'For ' . $plural, 'wps' ),
 				'labels'      => $this->get_labels(),
 				'rewrite'     => $this->get_rewrite(),
 			), $this->get_defaults() );
+		}
 
-			$args = wp_parse_args( $args, $defaults );
-			if ( isset( $args['terms'] ) ) {
-				foreach ( (array) $args['terms'] as $data ) {
-					$this->add_term( $data );
-				}
-				unset( $args['terms'] );
-			}
-			if ( isset( $args['default'] ) ) {
-				$this->set_default( $args['default'] );
-				unset( $args['default'] );
-			}
+		/**
+		 * Registers the post type helper method.
+		 *
+		 * @param array $args Array of post type args.
+		 */
+		protected function register_taxonomy() {
 
-			register_taxonomy( $this->taxonomy, $this->object_type, $args );
+			register_taxonomy( $this->taxonomy, $this->object_type, $this->get_args() );
 
 			if ( $this->single ) {
 				$this->make_single_term();
@@ -364,7 +404,8 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 */
 		protected function make_single_term() {
 
-			$args = $this->get_single_defaults();
+			$args = is_array( $this->single ) ? wp_parse_args( $this->single, $this->get_single_defaults() ) : $this->get_single_defaults();
+
 			if ( method_exists( $this, 'get_single_args' ) ) {
 				$args = wp_parse_args( $this->get_single_args(), $args );
 			}
@@ -386,12 +427,19 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @return array Array of rewrite post type args.
 		 */
 		protected function get_rewrite() {
-			return array(
+
+			if ( ! empty( $this->rewrite ) ) {
+				return $this->rewrite;
+			}
+
+			$this->rewrite = array(
 				'slug'       => $this->taxonomy,
 				'with_front' => true,
 				'pages'      => true,
 				'feeds'      => true,
 			);
+
+			return $this->rewrite;
 		}
 
 		/**
@@ -401,8 +449,11 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 */
 		public function get_defaults() {
 
-			return apply_filters( 'wps_taxonomy_defaults', array(
+			if ( ! empty( $this->defaults ) ) {
+				return $this->defaults;
+			}
 
+			$this->defaults = apply_filters( 'wps_taxonomy_defaults', array(
 				'public'                => true,
 				'publicly_queryable'    => true,
 				'hierarchical'          => true,
@@ -419,9 +470,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				'sort'                  => '',
 				'update_count_callback' => '_update_post_term_count', // _update_generic_term_count
 				'query_var'             => $this->taxonomy,
-				'terms'                 => null,
-				'default'               => null,
 			) );
+
+			return $this->defaults;
 
 		}
 
@@ -449,17 +500,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			if ( in_array( $this->taxonomy, get_object_taxonomies( $post_type ), true ) ) {
 				remove_meta_box( $this->taxonomy . 'div', $post_type, 'side' );
 			}
-		}
-
-		/**
-		 * Gets the post type as words
-		 *
-		 * @param string $str String to capitalize.
-		 *
-		 * @return string Capitalized string.
-		 */
-		protected function get_word( $str ) {
-			return str_replace( '-', ' ', str_replace( '_', ' ', $str ) );
 		}
 
 		/**
@@ -519,19 +559,6 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		}
 
 		/**
-		 * Bail out if running an autosave, ajax or a cron
-		 *
-		 * @return bool
-		 */
-		protected function should_bail() {
-			return (
-				( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ||
-				( defined( 'DOING_AJAX' ) && DOING_AJAX ) ||
-				( defined( 'DOING_CRON' ) && DOING_CRON )
-			);
-		}
-
-		/**
 		 * Define default terms for custom taxonomies
 		 *
 		 * @param int      $post_id Post ID.
@@ -581,6 +608,16 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			ksort( $sorted );
 
 			return $sorted;
+		}
+
+		/**
+		 * Set a term to have a limited number of objects.
+		 *
+		 * @param string $term  Term name.
+		 * @param int    $limit Number of published posts.
+		 */
+		public function limit_num_posts_for_term( $term, $limit ) {
+			$this->limits[] = new LimitNumPostsForTerm( $this->taxonomy, $term, $limit );
 		}
 
 		/**
