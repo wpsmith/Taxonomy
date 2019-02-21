@@ -11,27 +11,26 @@
  *
  * PHP Version 7.2
  *
- * @category   WPS\Plugins\Fundraising
- * @package    WPS\Plugins\Fundraising\PostTypes
+ * @package    WPS\WP
  * @author     Travis Smith <t@wpsmith.net>
- * @copyright  2018 Travis Smith
+ * @copyright  2018-2019 Travis Smith
  * @license    http://opensource.org/licenses/gpl-2.0.php GNU Public License v2
  * @link       https://wpsmith.net/
  * @since      0.0.1
  */
 
-namespace WPS\Taxonomies;
+namespace WPS\WP\Taxonomies;
 
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if ( ! class_exists( 'WPS\Taxonomies\LimitNumPostsForTerm' ) ) {
+if ( ! class_exists( __NAMESPACE__ . '\LimitNumPostsForTerm' ) ) {
 	/**
 	 * Class LimitNumPostsForTerm
 	 *
-	 * @package WPS\Taxonomies
+	 * @package WPS\WP
 	 */
 	class LimitNumPostsForTerm {
 

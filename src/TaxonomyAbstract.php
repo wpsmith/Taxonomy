@@ -8,32 +8,31 @@
  * Any modifications to or software including (via compiler) GPL-licensed code must also be made
  * available under the GPL along with build & install instructions.
  *
- * @package    WPS\Taxonomy
+ * @package    WPS\WP
  * @author     Travis Smith <t@wpsmith.net>
- * @copyright  2015-2018 Travis Smith
+ * @copyright  2015-2019 Travis Smith
  * @license    http://opensource.org/licenses/gpl-2.0.php GNU Public License v2
  * @link       https://github.com/wpsmith/WPS
  * @version    1.0.0
  * @since      0.1.0
  */
 
-namespace WPS\Taxonomies;
+namespace WPS\WP\Taxonomies;
 
-use WPS;
+use WPS\Core\Singleton;
 
 // Exit if accessed directly.
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if ( ! class_exists( 'WPS\Taxonomies\TaxonomyAbstract' ) ) {
+if ( ! class_exists( __NAMESPACE__ . '\TaxonomyAbstract' ) ) {
 	/**
 	 * Taxonomy class.
 	 *
-	 * @package WPS_Core
-	 * @author  Travis Smith <t@wpsmith.net>
+	 * @package WPS\WP
 	 */
-	abstract class TaxonomyAbstract extends WPS\Core\Singleton {
+	abstract class TaxonomyAbstract extends Singleton {
 
 		/**
 		 * Taxonomy registered name
@@ -192,7 +191,7 @@ if ( ! class_exists( 'WPS\Taxonomies\TaxonomyAbstract' ) ) {
 		 * Initializes ACF Fields on plugins_loaded hook.
 		 */
 		public function initialize_fields() {
-			WPS\Core\Fields::get_instance();
+			WPS\WP\Fields::get_instance();
 		}
 
 		/**

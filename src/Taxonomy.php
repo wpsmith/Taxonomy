@@ -8,16 +8,16 @@
  * Any modifications to or software including (via compiler) GPL-licensed code must also be made
  * available under the GPL along with build & install instructions.
  *
- * @package    WPS\Taxonomy
+ * @package    WPS\WP
  * @author     Travis Smith <t@wpsmith.net>
- * @copyright  2015-2018 Travis Smith
+ * @copyright  2015-2019 Travis Smith
  * @license    http://opensource.org/licenses/gpl-2.0.php GNU Public License v2
  * @link       https://github.com/wpsmith/WPS
  * @version    1.0.0
  * @since      0.1.0
  */
 
-namespace WPS\Taxonomies;
+namespace WPS\WP\Taxonomies;
 
 use WPS;
 
@@ -26,14 +26,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
+if ( ! class_exists( __NAMESPACE__ . '\Taxonomy' ) ) {
 	/**
 	 * Taxonomy class.
 	 *
-	 * @package WPS_Core
-	 * @author  Travis Smith <t@wpsmith.net>
+	 * @package WPS\WP
 	 */
-	class Taxonomy extends WPS\Core\Registerable {
+	class Taxonomy extends WPS\WP\Registerable {
 
 		/**
 		 * Taxonomy registered name
@@ -187,6 +186,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 					foreach ( $args['terms'] as $term ) {
 						$this->add_term( $term );
 					}
+					$this->activate();
 				}
 
 				// Set single args.
@@ -232,7 +232,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 		}
 
-
+		/**
+		 * Hooks into WordPress.
+		 */
 		public function add_hooks() {
 			// Set default terms.
 			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
@@ -263,7 +265,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @private
 		 */
 		public function initialize_fields() {
-			WPS\Core\Fields::get_instance();
+			WPS\WP\Fields::get_instance();
 		}
 
 		/**
@@ -283,20 +285,25 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				( null !== $this->default && $this->default['slug'] === $default )
 			) {
 				return $this->default;
-//				$default = array( (int) get_option( 'default_' . $this->slug ) );
 			}
 
+			// Check for term by slug.
 			$term = get_term_by( 'slug', $default, $this->taxonomy, ARRAY_A );
+
+			// If slug fails, check for term by name.
 			if ( false === $term ) {
 				$term = get_term_by( 'name', $default, $this->taxonomy, ARRAY_A );
 			}
 
+			// If name also fails, populate taxonomy default.
 			if ( false === $term ) {
 				$term = $this->populate_taxonomy_default( $default );
 			}
 
-			$this->default = $term;
-			update_option( 'default_' . $this->taxonomy, $this->default['term_id'] );
+			if ( !is_wp_error($term)) {
+				$this->default = $term;
+				update_option( 'default_' . $this->taxonomy, $this->default['term_id'] );
+			}
 
 			return $this->default;
 		}
@@ -546,7 +553,7 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 
 			// Populate with Terms.
 			foreach ( $terms_to_be_added as $term => $data ) {
-				if ( ! term_exists( $term, $taxonomy ) ) {
+				if ( ! self::term_exists( $term, $taxonomy ) ) {
 					$terms[] = wp_insert_term( $term, $taxonomy, $data );
 				}
 			}
@@ -579,8 +586,14 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				if ( ! empty( $term ) && ! is_wp_error( $term ) ) {
 					$this->default = get_term( $term['term_id'], $this->taxonomy, ARRAY_A );
 					update_option( 'default_' . $this->taxonomy, $this->default['term_id'] );
+
+					return $term;
+				} else {
+					return new \WP_Error( 'term-not-insert', __( 'Term could not be inserted.', 'wps' ) );
 				}
 			}
+
+			return new \WP_Error( 'term-not-string', __( 'Term should be a string.', 'wps' ) );
 		}
 
 		/**
@@ -591,11 +604,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		 * @return int
 		 */
 		public function get_default( $object_type = '' ) {
-			WPS\write_log( $this->default, 'get_default' );
-			WPS\write_log( $object_type, 'get_default:$object_type' );
 
 			if ( empty( $this->default ) ) {
-				return 0;
+				return intval( get_option( 'default_' . $this->taxonomy ) );
 			}
 
 			if ( isset( $this->default[ $object_type ] ) ) {
@@ -632,9 +643,11 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 				// Get set terms.
 				$terms = wp_get_object_terms( $post_id, $this->taxonomy );
 
+				$default_term_id = is_int( $default ) ? $default : ( is_array( $default ) && isset( $default['term_id'] ) ? $default['term_id'] : 0 );
+
 				// If no terms are currently set, force default term.
-				if ( empty( $terms ) && term_exists( $default['term_id'], $this->taxonomy ) ) {
-					wp_set_object_terms( $post_id, $default['term_id'], $this->taxonomy );
+				if ( empty( $terms ) && self::term_exists( $default_term_id, $this->taxonomy ) ) {
+					wp_set_object_terms( $post_id, $default_term_id, $this->taxonomy );
 				}
 			}
 		}
@@ -696,14 +709,120 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 		}
 
 		/**
-		 * Set the object properties.
+		 * Cached version of term_exists()
 		 *
-		 * @since 0.2.1
+		 * Term exists calls can pile up on a single pageload.
+		 * This function adds a layer of caching to prevent lots of queries.
+		 *
+		 * @param int|string $term     The term to check can be id, slug or name.
+		 * @param string     $taxonomy The taxonomy name to use
+		 * @param int        $parent   Optional. ID of parent term under which to confine the exists search.
+		 *
+		 * @return mixed Returns null if the term does not exist. Returns the term ID
+		 *               if no taxonomy is specified and the term ID exists. Returns
+		 *               an array of the term ID and the term taxonomy ID the taxonomy
+		 *               is specified and the pairing exists.
+		 */
+		public static function term_exists( $term, $taxonomy = '', $parent = null ) {
+			// If $parent is not null, let's skip the cache.
+			if ( null !== $parent ) {
+				return term_exists( $term, $taxonomy, $parent );
+			}
+			if ( ! empty( $taxonomy ) ) {
+				$cache_key = $term . '|' . $taxonomy;
+			} else {
+				$cache_key = $term;
+			}
+			$cache_value = wp_cache_get( $cache_key, 'term_exists' );
+			// term_exists frequently returns null, but (happily) never false
+			if ( false === $cache_value ) {
+				$term_exists = term_exists( $term, $taxonomy );
+				wp_cache_set( $cache_key, $term_exists, 'term_exists', 3 * HOUR_IN_SECONDS );
+			} else {
+				$term_exists = $cache_value;
+			}
+			if ( is_wp_error( $term_exists ) ) {
+				$term_exists = null;
+			}
+
+			return $term_exists;
+		}
+
+		/**
+		 * Gets the first term attached to the post.
+		 *
+		 * Heavily borrowed from Bill Erickson.
+		 *
+		 * @link https://github.com/billerickson/EA-Genesis-Child/
+		 *
+		 * @param \WP_Post|int $post_or_id The Post or the Post ID.
+		 * @param string $taxonomy The taxonomy.
+		 *
+		 * @return array|bool|null|\WP_Error|\WP_Term
+		 */
+		public static function get_the_first_term( $post_or_id, $taxonomy = 'category' ) {
+
+			if ( ! $post = get_post( $post_or_id ) ) {
+				return false;
+			}
+
+			$term = false;
+
+			// Use WP SEO Primary Term
+			// from https://github.com/Yoast/wordpress-seo/issues/4038
+			if ( class_exists( 'WPSEO_Primary_Term' ) ) {
+				$term = get_term( ( new \WPSEO_Primary_Term( $taxonomy, $post->ID ) )->get_primary_term(), $taxonomy );
+			}
+
+			// Fallback on term with highest post count
+			if ( ! $term || is_wp_error( $term ) ) {
+				$terms = get_the_terms( $post->ID, $taxonomy );
+				if ( empty( $terms ) || is_wp_error( $terms ) ) {
+					return false;
+				}
+
+				// If there's only one term, use that
+				if ( 1 == count( $terms ) ) {
+					$term = array_shift( $terms );
+
+					// If there's more than one...
+				} else {
+
+					// Sort by term order if available
+					// @uses WP Term Order plugin
+					if ( isset( $terms[0]->order ) ) {
+						$list = array();
+						foreach ( $terms as $term ) {
+							$list[ $term->order ] = $term;
+						}
+
+						ksort( $list, SORT_NUMERIC );
+
+						// Or sort by post count
+					} else {
+						$list = array();
+						foreach ( $terms as $term ) {
+							$list[ $term->count ] = $term;
+						}
+
+						ksort( $list, SORT_NUMERIC );
+						$list = array_reverse( $list );
+					}
+					$term = array_shift( $list );
+				}
+			}
+
+			return $term;
+
+		}
+
+		/**
+		 * Set the object properties.
 		 *
 		 * @param string $property Property in object.  Must be set in object.
 		 * @param mixed  $value    Value of property.
 		 *
-		 * @return Taxonomy_Single_Term  Returns Taxonomy_Single_Term object, allows for chaining.
+		 * @return Taxonomy  Returns Taxonomy object, allows for chaining.
 		 */
 		public function set( $property, $value ) {
 
@@ -712,7 +831,9 @@ if ( ! class_exists( 'WPS\Taxonomies\Taxonomy' ) ) {
 			}
 
 			if ( 'default' === $property ) {
+				// $this->$property is set within process_default().
 				$value = $this->process_default( $value );
+				return $this;
 			}
 
 			$this->$property = $value;
