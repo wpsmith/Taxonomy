@@ -265,7 +265,9 @@ if ( ! class_exists( __NAMESPACE__ . '\Taxonomy' ) ) {
 		 * @private
 		 */
 		public function initialize_fields() {
-			WPS\WP\Fields::get_instance();
+			if ( class_exists( 'ACF' ) ) {
+				WPS\WP\Fields::get_instance();
+			}
 		}
 
 		/**
