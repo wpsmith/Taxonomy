@@ -10,7 +10,7 @@
  *
  * @package    WPS\WP
  * @author     Travis Smith <t@wpsmith.net>
- * @copyright  2015-2019 Travis Smith
+ * @copyright  2015-2020 Travis Smith
  * @license    http://opensource.org/licenses/gpl-2.0.php GNU Public License v2
  * @link       https://github.com/wpsmith/WPS
  * @version    1.0.0
@@ -237,7 +237,7 @@ if ( ! class_exists( __NAMESPACE__ . '\Taxonomy' ) ) {
 		 */
 		public function add_hooks() {
 			// Set default terms.
-			add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
+			$this->add_action( 'save_post', array( $this, 'set_default_object_term' ), 100, 2 );
 
 			// Create the create_taxonomy.
 			$this->add_action( 'init', array( $this, 'register_taxonomy' ), 0 );
@@ -247,7 +247,7 @@ if ( ! class_exists( __NAMESPACE__ . '\Taxonomy' ) ) {
 
 			// Remove Taxonomy Metabox.
 			if ( $this->no_metabox ) {
-				add_action( 'add_meta_boxes', array( $this, 'remove_taxonomy_metaboxes' ), 10 );
+				$this->add_action( 'add_meta_boxes', array( $this, 'remove_taxonomy_metaboxes' ), 10 );
 			}
 
 			// Maybe run methods.
